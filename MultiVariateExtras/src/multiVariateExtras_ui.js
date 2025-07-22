@@ -364,15 +364,15 @@ const multiVariateExtras_ui = {
             const isHidden = iAttr.hidden;
             /*
                         const visibilityIconPath = isHidden ?       //      reverse !isHidden to show destiny instead of state
-                            "../../common/art/blank.png" :
-                            "../../common/art/check-box.png";      //  "../../common/art/visibility.png";
+                            "../common/art/blank.png" :
+                            "../common/art/check-box.png";      //  "../common/art/visibility.png";
                         const invisibilityIconPath = isHidden ?     //      reverse !isHidden
-                            "../../common/art/blank-check-box.png" :  //  "../../common/art/visibility-no.png"
-                            "../../common/art/blank.png";
+                            "../common/art/blank-check-box.png" :  //  "../common/art/visibility-no.png"
+                            "../common/art/blank.png";
             */
             const visibilityIconPath = isHidden
-                ? "../../common/art/slide-off-simplest.png"
-                : "../../common/art/slide-on-simplest.png";   //  only one icon in this scheme
+                ? "../common/art/slide-off-simplest.png"
+                : "../common/art/slide-on-simplest.png";   //  only one icon in this scheme
 
             const theHint = isHidden ?
                 `click to make ${iAttr.name} visible in the table` :     //  todo: should be title
@@ -408,12 +408,12 @@ const multiVariateExtras_ui = {
             const theShowHint = `Show all attributes in [${iBatchName}]`;
 
             const hidingImage = `<img class="small-button-image" 
-                    src="../../common/art/visibility-no.png" title="${theHideHint}" 
+                    src="../common/art/visibility-no.png" title="${theHideHint}" 
                     id="hide-${iBatchName}"
                     alt = "batch invisibility image"  
                     />`;
             const showingImage = `<img class="small-button-image" 
-                    src="../../common/art/visibility.png" title="${theShowHint}" 
+                    src="../common/art/visibility.png" title="${theShowHint}" 
                     id="show-${iBatchName}"
                     alt = "batch visibility image"  
                     />`;
@@ -442,8 +442,8 @@ const multiVariateExtras_ui = {
             const useClearIcon = (destBatch === multiVariateExtras.constants.noBatchString);
 
             const batchIconPath = useClearIcon ?
-                "../../common/art/subtract.png" :
-                "../../common/art/add.png";
+                "../common/art/subtract.png" :
+                "../common/art/add.png";
 
             const theHint = useClearIcon ?
                 `click to remove ${iAttr.name} from batch [${iAttr.batch}]` :           //  todo: should be title
@@ -492,7 +492,7 @@ const multiVariateExtras_ui = {
                 let theHint = this.makeAttrDescriptor(iAttr);
                 theHint = quote(theHint);
                 const theImage = `&emsp;<img class="small-button-image" 
-                    src="../../common/art/info.png" width="14" title="${theHint}" 
+                    src="../common/art/info.png" width="14" title="${theHint}" 
                     alt="press for info"
                     onclick="multiVariateExtras.makeInfoAlert('${iAttr.id}')" 
                     alt = "circular information button image"  

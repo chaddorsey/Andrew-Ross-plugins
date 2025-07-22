@@ -40,9 +40,9 @@
 
 
     <!--        jquery section      -->
-    <script src="../../common/jquery/jquery.min.js"></script>
-    <link rel="stylesheet" type='text/css' href="../../common/jquery/custom/jquery-ui.min.css">
-    <script src="../../common/jquery/custom/jquery-ui.min.js"></script>
+    <script src="../common/jquery/jquery.min.js"></script>
+    <link rel="stylesheet" type='text/css' href="../common/jquery/custom/jquery-ui.min.css">
+    <script src="../common/jquery/custom/jquery-ui.min.js"></script>
 
 
     <link href="https://fonts.googleapis.com/css?family=IBM+Plex+Sans+Condensed" rel="stylesheet">
@@ -50,10 +50,10 @@
 
     <link rel='stylesheet' type='text/css' href='css/multiVariateExtras.css'/>
 
-    <script src="../../common/src/iframe-phone.js"></script>
-    <script src="../../common/src/codapInterface.js"></script>
-    <script src="../../common/src/pluginHelper.js"></script>
-    <script type="module" src="../../common/src/TEEUtils.js"></script>
+    <script src="../common/src/iframe-phone.js"></script>
+    <script src="../common/src/codapInterface.js"></script>
+    <script src="../common/src/pluginHelper.js"></script>
+    <script type="module" src="../common/src/TEEUtils.js"></script>
 
 
     <script src="src/multiVariateExtras.js"></script>
@@ -61,7 +61,7 @@
     <script src="src/connect.js?v=1"></script>
     <script src="src/notify.js"></script>
 
-    <script src="../../common/sweetalert2/dist/sweetalert2.all.min.js"></script>
+    <script src="../common/sweetalert2/dist/sweetalert2.all.min.js"></script>
 
     <script>
         $(function () {
@@ -88,7 +88,7 @@
         <div id="multiVariateExtrasHeaderDIV" class="stripe">
             <h1 class="stripe-hed">MultiVariateExtras</h1>&emsp;
             <img class="stripe-element"
-                 src="../../common/art/refresh-empty.png"
+                 src="../common/art/refresh-empty.png"
                  onclick="multiVariateExtras.setUpDatasets()"
                  style="cursor: pointer"
                  height="16"
@@ -96,7 +96,7 @@
             >
             <a class="stripe-element"
                target="_blank" href="https://github.com/aross15/plugins/blob/master/multiVariateExtras/readme.md#multiVariateExtras">
-                <img src="../../common/art/info.png" class="infoIcon" alt="info"
+                <img src="../common/art/info.png" class="infoIcon" alt="info"
                      title="Drag the URL into an existing CODAP document. Do extra multivariate stuff.">
             </a>
 
@@ -205,13 +205,13 @@
 
                 <div id="select-buttons" class="tag-button-cluster stripe">
                     &emsp;
-                    <img id="add-button" class="medium-button-image" src="../../common/art/add.png"
+                    <img id="add-button" class="medium-button-image" src="../common/art/add.png"
                          alt="add button"
                          onclick='multiVariateExtras.handlers.applyTagToSelection("add")'>
                     &ensp;
                     <label for="add-button">tag selection</label>
                     &emsp;
-                    <img id="subtract-button" class="medium-button-image" src="../../common/art/subtract.png"
+                    <img id="subtract-button" class="medium-button-image" src="../common/art/subtract.png"
                          alt="subtract button"
                          onclick='multiVariateExtras.handlers.applyTagToSelection("remove")'>
                     &ensp;
@@ -233,7 +233,7 @@
 
                 <div id="binary-select-buttons" class="tag-button-cluster stripe">
                     &emsp;
-                    <img id="binary-tag-button" class="medium-button-image" src="../../common/art/add.png"
+                    <img id="binary-tag-button" class="medium-button-image" src="../common/art/add.png"
                          width="24" alt="add button"
                          onclick='multiVariateExtras.handlers.applyBinaryTags()'>
                     &ensp;
@@ -261,7 +261,7 @@
 
                 <div id="random-select-buttons" class="tag-button-cluster stripe">
                     &emsp;
-                    <img id="random-tag-button" class="medium-button-image" src="../../common/art/add.png"
+                    <img id="random-tag-button" class="medium-button-image" src="../common/art/add.png"
                          width="24" alt="add button"
                          onclick='multiVariateExtras.handlers.applyRandomTags()'>
                     &ensp;
@@ -284,7 +284,7 @@
         <div class="tag-button-cluster stripe">
             &emsp;
             <img id="clear-button" class="medium-button-image"
-                 src="../../common/art/clear.png" alt="press to clear tags"
+                 src="../common/art/clear.png" alt="press to clear tags"
                  onclick='multiVariateExtras.handlers.clearAllTags()'>
             &ensp;&ensp;
             <label for="clear-button" class="stripe-element">clear all tags
