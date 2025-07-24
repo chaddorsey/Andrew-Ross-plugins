@@ -664,6 +664,15 @@ const multiVariateExtras = {
          * Error function approximation
          * @param {number} x - Input value
          * @returns {number} Error function value
+         * This code was written by Cursor AI. It's based on an approximation by
+         * Abramowitz and Stegun, as given in
+         * https://en.wikipedia.org/wiki/Error_function#Approximation_with_elementary_functions
+         * with maximum error of 1.5 x 10^-7.
+         * This blog https://www.johndcook.com/blog/2009/01/19/stand-alone-error-function-erf/
+         * shows how to use Horner's method to evaluate the polynomial.
+         * An even better approximation based on "C code from Sun Microsystems" is given in 
+         * https://math.stackexchange.com/questions/263216/error-function-erf-with-better-precision
+         * but that's probably overkill for our purposes.
          */
         erf: function(x) {
             // Simple approximation of the error function
