@@ -516,7 +516,8 @@ const multiVariateExtras = {
          * @returns {string} Simplified category: "EssentiallyNumeric", "EssentiallyCategorical", or "Other"
          */
         mapAttributeTypeToCategory: function(type) {
-            if (!type || type === "" || type === "categorical" || type === "checkbox") {
+            if (!type || type === "" || type === "categorical" || type === "checkbox" || type === "nominal") {
+                // the roller coaster data that comes with CODAP has some attributes listed as "nominal"
                 return "EssentiallyCategorical"; // checkbox can be FALSE, TRUE, or missing
             } else if (type === "numeric" || type === "date" || type === "qualitative") {
                 return "EssentiallyNumeric"; // qualitative is just a way to display numeric data with bars in the table
