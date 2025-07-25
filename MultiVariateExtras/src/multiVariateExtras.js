@@ -198,9 +198,6 @@ const multiVariateExtras = {
         // Set up periodic error checking
         this.setupPeriodicErrorChecking();
         
-        // Set up a more aggressive error detection mechanism
-        this.setupAggressiveErrorDetection();
-        
         console.log("MultiVariateExtras: Global error handling set up for MobX errors");
     },
 
@@ -759,10 +756,10 @@ const multiVariateExtras = {
             pluginVersion: this.constants.version,
             datasetID: this.dsID,
             datasetName: this.getNameOfCurrentDataset(),
-            trackedComponents: Array.from(this.createdComponents),
-            componentReferences: Object.fromEntries(this.componentReferences),
-            datasetInfo: this.datasetInfo,
-            selectedCaseIDs: this.selectedCaseIDs,
+            trackedComponents: Array.from(this.createdComponents || []),
+            componentReferences: Object.fromEntries(this.componentReferences || new Map()),
+            datasetInfo: this.datasetInfo || {},
+            selectedCaseIDs: this.selectedCaseIDs || [],
             attributeGroupingMode: this.attributeGroupingMode
         };
     },
@@ -785,22 +782,22 @@ const multiVariateExtras = {
             const debugMessage = `
                 <strong>MultiVariateExtras Debug Information</strong><br><br>
                 
-                <strong>Plugin Version:</strong> ${debugInfo.pluginVersion}<br>
+                <strong>Plugin Version:</strong> ${debugInfo.pluginVersion || 'Unknown'}<br>
                 <strong>Dataset ID:</strong> ${debugInfo.datasetID || 'None'}<br>
                 <strong>Dataset Name:</strong> ${debugInfo.datasetName || 'None'}<br>
-                <strong>Attribute Grouping Mode:</strong> ${debugInfo.attributeGroupingMode}<br>
-                <strong>Tracked Components:</strong> ${debugInfo.trackedComponents.length}<br>
-                <strong>Selected Cases:</strong> ${debugInfo.selectedCaseIDs.length}<br><br>
+                <strong>Attribute Grouping Mode:</strong> ${debugInfo.attributeGroupingMode || 'Unknown'}<br>
+                <strong>Tracked Components:</strong> ${(debugInfo.trackedComponents || []).length}<br>
+                <strong>Selected Cases:</strong> ${(debugInfo.selectedCaseIDs || []).length}<br><br>
                 
                 <strong>Tracked Component IDs:</strong><br>
-                ${debugInfo.trackedComponents.length > 0 ? 
+                ${(debugInfo.trackedComponents || []).length > 0 ? 
                     debugInfo.trackedComponents.map(id => `• ${id}`).join('<br>') : 
                     'None'}<br><br>
                 
                 <strong>Component References:</strong><br>
-                ${Object.keys(debugInfo.componentReferences).length > 0 ? 
+                ${Object.keys(debugInfo.componentReferences || {}).length > 0 ? 
                     Object.entries(debugInfo.componentReferences).map(([id, ref]) => 
-                        `• ${id}: ${ref.type} (created: ${ref.created.toLocaleString()})`
+                        `• ${id}: ${ref.type || 'unknown'} (created: ${ref.created ? ref.created.toLocaleString() : 'unknown'})`
                     ).join('<br>') : 
                     'None'}<br><br>
                 
