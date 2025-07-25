@@ -40,6 +40,10 @@ const multiVariateExtras = {
     tagsAttributeName: "Tag",
     attributeGroupingMode : null,
 
+    // Component tracking for cleanup
+    createdComponents: new Set(), // Track components created by this plugin
+    componentReferences: new Map(), // Track shared model references
+
     initialize: async function () {
         this.attributeGroupingMode = this.constants.kGroupAttributeByBatchMode;
         await connect.initialize();
@@ -64,6 +68,271 @@ const multiVariateExtras = {
         document.querySelector('body').addEventListener('click',
             connect.selectSelf, {capture:true});
 
+        // Set up cleanup on page unload
+        window.addEventListener('beforeunload', this.cleanup.bind(this));
+    },
+
+    /**
+     * Cleanup method to remove all components and references created by this plugin
+     * This helps prevent MobX state tree reference resolution errors
+     */
+    cleanup: async function() {
+        try {
+            multiVariateExtras.log("Cleaning up MultiVariateExtras plugin components and references");
+            
+            // Clean up all tracked components
+            for (const componentId of this.createdComponents) {
+                try {
+                    await codapInterface.sendRequest({
+                        action: "delete",
+                        resource: `component[${componentId}]`
+                    });
+                    multiVariateExtras.log(`Cleaned up component: ${componentId}`);
+                } catch (error) {
+                    multiVariateExtras.warn(`Failed to cleanup component ${componentId}: ${error.message}`);
+                }
+            }
+            
+            // Clear tracking sets
+            this.createdComponents.clear();
+            this.componentReferences.clear();
+            
+            multiVariateExtras.log("MultiVariateExtras cleanup completed");
+        } catch (error) {
+            multiVariateExtras.error(`Error during cleanup: ${error.message}`);
+        }
+    },
+
+    /**
+     * Track a component created by this plugin
+     * @param {string} componentId - The ID of the created component
+     * @param {Object} componentData - Additional data about the component
+     */
+    trackComponent: function(componentId, componentData = {}) {
+        if (componentId) {
+            this.createdComponents.add(componentId);
+            this.componentReferences.set(componentId, {
+                created: new Date(),
+                type: componentData.type || 'unknown',
+                data: componentData
+            });
+            multiVariateExtras.log(`Tracked component: ${componentId} (${componentData.type || 'unknown'})`);
+        }
+    },
+
+    /**
+     * Remove tracking for a component (when it's deleted externally)
+     * @param {string} componentId - The ID of the component to untrack
+     */
+    untrackComponent: function(componentId) {
+        if (componentId && this.createdComponents.has(componentId)) {
+            this.createdComponents.delete(componentId);
+            this.componentReferences.delete(componentId);
+            multiVariateExtras.log(`Untracked component: ${componentId}`);
+        }
+    },
+
+    /**
+     * Validate and clean up stale references
+     * This can be called periodically or when errors occur
+     */
+    validateReferences: async function() {
+        try {
+            multiVariateExtras.log("Validating component references...");
+            
+            const validComponents = new Set();
+            
+            // Check each tracked component to see if it still exists
+            for (const componentId of this.createdComponents) {
+                try {
+                    const result = await codapInterface.sendRequest({
+                        action: "get",
+                        resource: `component[${componentId}]`
+                    });
+                    
+                    if (result.success) {
+                        validComponents.add(componentId);
+                    } else {
+                        multiVariateExtras.warn(`Component ${componentId} no longer exists, removing from tracking`);
+                    }
+                } catch (error) {
+                    multiVariateExtras.warn(`Error checking component ${componentId}: ${error.message}`);
+                }
+            }
+            
+            // Update tracking with only valid components
+            const removedCount = this.createdComponents.size - validComponents.size;
+            if (removedCount > 0) {
+                multiVariateExtras.log(`Cleaning up ${removedCount} stale component references`);
+                this.createdComponents.clear();
+                this.componentReferences.clear();
+                
+                for (const componentId of validComponents) {
+                    this.createdComponents.add(componentId);
+                    // Restore reference data if available
+                    const refData = this.componentReferences.get(componentId);
+                    if (refData) {
+                        this.componentReferences.set(componentId, refData);
+                    }
+                }
+            }
+            
+            multiVariateExtras.log(`Reference validation complete. ${this.createdComponents.size} valid components tracked`);
+        } catch (error) {
+            multiVariateExtras.error(`Error during reference validation: ${error.message}`);
+        }
+    },
+
+    /**
+     * Handle MobX state tree reference resolution errors
+     * This method provides debugging information and recovery options
+     */
+    handleReferenceResolutionError: async function(error) {
+        multiVariateExtras.error(`MobX state tree reference resolution error detected: ${error.message}`);
+        
+        // Log detailed debugging information
+        console.group("MobX Reference Resolution Error Debug Info");
+        console.log("Error details:", error);
+        console.log("Current tracked components:", Array.from(this.createdComponents));
+        console.log("Component references:", Object.fromEntries(this.componentReferences));
+        console.log("Current dataset info:", this.datasetInfo);
+        console.log("Current dataset ID:", this.dsID);
+        console.groupEnd();
+        
+        // Attempt to validate and clean up references
+        try {
+            await this.validateReferences();
+            multiVariateExtras.log("Reference validation completed after error");
+        } catch (validationError) {
+            multiVariateExtras.error(`Error during reference validation: ${validationError.message}`);
+        }
+        
+        // Provide user-friendly error message
+        const errorMessage = `
+            MobX State Tree Reference Resolution Error
+            
+            This error occurs when CODAP tries to resolve references to components or tiles that no longer exist.
+            
+            Possible causes:
+            - Components were deleted externally
+            - Document state is inconsistent
+            - Plugin state is out of sync with CODAP
+            
+            Recovery options:
+            1. Refresh the CODAP document
+            2. Restart the plugin
+            3. Recreate any missing components
+            
+            Technical details: ${error.message}
+        `;
+        
+        // Show error to user if SweetAlert is available
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                icon: 'error',
+                title: 'Reference Resolution Error',
+                html: errorMessage.replace(/\n/g, '<br>'),
+                confirmButtonText: 'OK',
+                width: '600px'
+            });
+        } else {
+            alert(errorMessage);
+        }
+    },
+
+    /**
+     * Get debugging information for troubleshooting
+     * This can be called from the browser console for debugging
+     */
+    getDebugInfo: function() {
+        return {
+            pluginVersion: this.constants.version,
+            datasetID: this.dsID,
+            datasetName: this.getNameOfCurrentDataset(),
+            trackedComponents: Array.from(this.createdComponents),
+            componentReferences: Object.fromEntries(this.componentReferences),
+            datasetInfo: this.datasetInfo,
+            selectedCaseIDs: this.selectedCaseIDs,
+            attributeGroupingMode: this.attributeGroupingMode
+        };
+    },
+
+    /**
+     * Debug mode - provides debugging information and reference validation
+     * This can be called from the UI or browser console
+     */
+    debugMode: async function() {
+        try {
+            multiVariateExtras.log("=== DEBUG MODE ACTIVATED ===");
+            
+            // Get debug information
+            const debugInfo = this.getDebugInfo();
+            
+            // Validate references
+            await this.validateReferences();
+            
+            // Show debug information
+            const debugMessage = `
+                <strong>MultiVariateExtras Debug Information</strong><br><br>
+                
+                <strong>Plugin Version:</strong> ${debugInfo.pluginVersion}<br>
+                <strong>Dataset ID:</strong> ${debugInfo.datasetID || 'None'}<br>
+                <strong>Dataset Name:</strong> ${debugInfo.datasetName || 'None'}<br>
+                <strong>Attribute Grouping Mode:</strong> ${debugInfo.attributeGroupingMode}<br>
+                <strong>Tracked Components:</strong> ${debugInfo.trackedComponents.length}<br>
+                <strong>Selected Cases:</strong> ${debugInfo.selectedCaseIDs.length}<br><br>
+                
+                <strong>Tracked Component IDs:</strong><br>
+                ${debugInfo.trackedComponents.length > 0 ? 
+                    debugInfo.trackedComponents.map(id => `• ${id}`).join('<br>') : 
+                    'None'}<br><br>
+                
+                <strong>Component References:</strong><br>
+                ${Object.keys(debugInfo.componentReferences).length > 0 ? 
+                    Object.entries(debugInfo.componentReferences).map(([id, ref]) => 
+                        `• ${id}: ${ref.type} (created: ${ref.created.toLocaleString()})`
+                    ).join('<br>') : 
+                    'None'}<br><br>
+                
+                <em>Reference validation completed. Check console for detailed logs.</em>
+            `;
+            
+            // Show debug info using SweetAlert if available
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({
+                    icon: 'info',
+                    title: 'Debug Information',
+                    html: debugMessage,
+                    confirmButtonText: 'OK',
+                    width: '600px'
+                });
+            } else {
+                alert(debugMessage.replace(/<br>/g, '\n').replace(/<[^>]*>/g, ''));
+            }
+            
+            // Log detailed information to console
+            console.group("MultiVariateExtras Debug Information");
+            console.log("Debug Info:", debugInfo);
+            console.log("Component References:", debugInfo.componentReferences);
+            console.log("Dataset Info:", debugInfo.datasetInfo);
+            console.groupEnd();
+            
+            multiVariateExtras.log("=== DEBUG MODE COMPLETED ===");
+            
+        } catch (error) {
+            multiVariateExtras.error(`Error in debug mode: ${error.message}`);
+            
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Debug Error',
+                    text: `Error during debug mode: ${error.message}`,
+                    confirmButtonText: 'OK'
+                });
+            } else {
+                alert(`Debug Error: ${error.message}`);
+            }
+        }
     },
 
     /**
@@ -494,8 +763,18 @@ const multiVariateExtras = {
                 );
 
                 if (result.success) {
-                    multiVariateExtras.log(`Created correlation graph: ${result.values.id}`);
+                    const componentId = result.values.id;
+                    multiVariateExtras.log(`Created correlation graph: ${componentId}`);
                     multiVariateExtras.log(`Graph shows Predictor vs Response with correlation legend`);
+                    
+                    // Track the created component to prevent reference resolution errors
+                    multiVariateExtras.trackComponent(componentId, {
+                        type: 'correlation_graph',
+                        dataset: correlationDatasetName,
+                        xAxis: 'Predictor',
+                        yAxis: 'Response',
+                        legend: 'correlation'
+                    });
                 } else {
                     multiVariateExtras.warn(`Failed to create correlation graph: ${result.values ? result.values.error : "unknown error"}`);
                 }

@@ -664,10 +664,71 @@ const connect = {
         };
 
         try {
+            // Validate that the dataset exists before creating the graph
+            const datasetCheck = await codapInterface.sendRequest({
+                action: "get",
+                resource: `dataContext[${dataContext}]`
+            });
+
+            if (!datasetCheck.success) {
+                throw new Error(`Dataset '${dataContext}' not found. Cannot create graph.`);
+            }
+
+            // Validate that the attributes exist in the dataset
+            const datasetInfo = datasetCheck.values;
+            const allAttributes = [];
+            datasetInfo.collections.forEach(collection => {
+                collection.attrs.forEach(attr => {
+                    allAttributes.push(attr.name);
+                });
+            });
+
+            const missingAttributes = [];
+            if (!allAttributes.includes(xAxis)) missingAttributes.push(xAxis);
+            if (!allAttributes.includes(yAxis)) missingAttributes.push(yAxis);
+            if (legendAttr && !allAttributes.includes(legendAttr)) missingAttributes.push(legendAttr);
+
+            if (missingAttributes.length > 0) {
+                throw new Error(`Attributes not found in dataset: ${missingAttributes.join(', ')}`);
+            }
+
             const result = await codapInterface.sendRequest(theMessage);
+            
+            // Add error handling for reference resolution issues
+            if (result.success && result.values && result.values.id) {
+                console.log(`Graph component created successfully: ${result.values.id}`);
+            } else if (result.values && result.values.error) {
+                // Check for MobX reference resolution errors
+                if (result.values.error.includes("Failed to resolve reference") || 
+                    result.values.error.includes("mobx-state-tree")) {
+                    console.warn("MobX state tree reference resolution error detected. Attempting to validate references...");
+                    
+                    // Try to validate and clean up references
+                    if (typeof multiVariateExtras !== 'undefined' && multiVariateExtras.validateReferences) {
+                        await multiVariateExtras.validateReferences();
+                    }
+                    
+                    // Use the dedicated error handler
+                    if (typeof multiVariateExtras !== 'undefined' && multiVariateExtras.handleReferenceResolutionError) {
+                        await multiVariateExtras.handleReferenceResolutionError(new Error(result.values.error));
+                    }
+                    
+                    throw new Error(`Reference resolution error: ${result.values.error}. Please try again after the system stabilizes.`);
+                }
+                
+                throw new Error(`Failed to create graph: ${result.values.error}`);
+            }
+            
             return result;
         } catch (error) {
-            console.error(`Error creating graph: ${error}`);
+            console.error(`Error creating graph: ${error.message}`);
+            
+            // Log additional debugging information
+            if (error.message.includes("reference") || error.message.includes("MobX")) {
+                console.warn("Reference-related error detected. This may be due to stale shared model references.");
+                console.warn("Consider refreshing the CODAP document or restarting the plugin.");
+            }
+            
             throw error;
         }
     },
