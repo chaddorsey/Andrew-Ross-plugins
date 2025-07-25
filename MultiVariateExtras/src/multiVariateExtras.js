@@ -582,11 +582,14 @@ const multiVariateExtras = {
     },
 
     /**
-     * Enhanced graph creation with error monitoring
+     * Enhanced graph creation with error monitoring and proactive cleanup
      */
     createGraphWithMonitoring: async function(dataContext, xAxis, yAxis, legendAttr = null) {
         try {
             console.log("MultiVariateExtras: Creating graph with error monitoring...");
+            
+            // First, clean up any existing graphs for this dataset to prevent conflicts
+            await this.cleanupExistingGraphsForDataset(dataContext);
             
             // Create the graph
             const result = await connect.createGraph(dataContext, xAxis, yAxis, legendAttr);
@@ -595,13 +598,15 @@ const multiVariateExtras = {
                 const componentId = result.values.id;
                 console.log(`Graph created successfully: ${componentId}`);
                 
-                // Track the component
+                // Track the component with enhanced metadata
                 this.trackComponent(componentId, {
                     type: 'correlation_graph',
                     dataset: dataContext,
                     xAxis: xAxis,
                     yAxis: yAxis,
-                    legend: legendAttr
+                    legend: legendAttr,
+                    autoCleanup: true,
+                    priority: 'high'
                 });
                 
                 // Start monitoring for MobX errors
@@ -615,6 +620,42 @@ const multiVariateExtras = {
         } catch (error) {
             console.error("Error creating graph:", error);
             throw error;
+        }
+    },
+
+    /**
+     * Clean up existing graphs for a dataset to prevent conflicts
+     */
+    cleanupExistingGraphsForDataset: async function(datasetName) {
+        try {
+            const componentsToRemove = [];
+            
+            // Find existing graphs for this dataset
+            for (const [componentId, ref] of this.componentReferences) {
+                if (ref.type === 'correlation_graph' && ref.data.dataset === datasetName) {
+                    componentsToRemove.push(componentId);
+                }
+            }
+            
+            // Remove existing graphs
+            for (const componentId of componentsToRemove) {
+                try {
+                    await codapInterface.sendRequest({
+                        action: "delete",
+                        resource: `component[${componentId}]`
+                    });
+                    this.untrackComponent(componentId);
+                    console.log(`Cleaned up existing graph: ${componentId}`);
+                } catch (error) {
+                    console.warn(`Error cleaning up existing graph ${componentId}: ${error.message}`);
+                }
+            }
+            
+            if (componentsToRemove.length > 0) {
+                console.log(`Cleaned up ${componentsToRemove.length} existing graphs for dataset ${datasetName}`);
+            }
+        } catch (error) {
+            console.warn(`Error during existing graph cleanup: ${error.message}`);
         }
     },
 
@@ -688,14 +729,20 @@ const multiVariateExtras = {
     },
 
     /**
-     * Enhanced table creation with error monitoring
+     * Enhanced table creation with error monitoring and proactive cleanup
      */
     createTableWithMonitoring: async function() {
         try {
             console.log("MultiVariateExtras: Creating correlation table with error monitoring...");
             
+            // First, clean up any existing correlation datasets to prevent conflicts
+            await this.cleanupExistingCorrelationDatasets();
+            
             // Initialize the correlation dataset in CODAP
             pluginHelper.initDataSet(multiVariateExtras.dataSetCorrelations);
+            
+            // Track the dataset creation
+            this.trackDatasetCreation('PairwiseCorrelations');
             
             // Start monitoring for table viewing errors
             this.monitorForTableViewingErrors();
@@ -708,6 +755,49 @@ const multiVariateExtras = {
         } catch (error) {
             console.error("Error creating correlation table:", error);
             throw error;
+        }
+    },
+
+    /**
+     * Track dataset creation to prevent conflicts
+     */
+    trackDatasetCreation: function(datasetName) {
+        if (!this.createdDatasets) {
+            this.createdDatasets = new Set();
+        }
+        
+        this.createdDatasets.add(datasetName);
+        console.log(`MultiVariateExtras: Tracking dataset creation: ${datasetName}`);
+    },
+
+    /**
+     * Clean up existing correlation datasets to prevent conflicts
+     */
+    cleanupExistingCorrelationDatasets: async function() {
+        try {
+            const datasetsToCheck = ['PairwiseCorrelations'];
+            
+            for (const datasetName of datasetsToCheck) {
+                try {
+                    const result = await codapInterface.sendRequest({
+                        action: "get",
+                        resource: `dataContext[${datasetName}]`
+                    });
+                    
+                    if (result.success) {
+                        // Delete existing dataset to prevent conflicts
+                        await codapInterface.sendRequest({
+                            action: "delete",
+                            resource: `dataContext[${datasetName}]`
+                        });
+                        console.log(`Cleaned up existing correlation dataset: ${datasetName}`);
+                    }
+                } catch (error) {
+                    console.warn(`Error checking/deleting dataset ${datasetName}: ${error.message}`);
+                }
+            }
+        } catch (error) {
+            console.warn(`Error during dataset cleanup: ${error.message}`);
         }
     },
 
@@ -832,6 +922,14 @@ const multiVariateExtras = {
         try {
             multiVariateExtras.log("Cleaning up MultiVariateExtras plugin components and references");
             
+            // Clear all cleanup intervals first
+            if (this.componentCleanupIntervals) {
+                for (const [componentId, interval] of this.componentCleanupIntervals) {
+                    clearInterval(interval);
+                }
+                this.componentCleanupIntervals.clear();
+            }
+            
             // Clean up all tracked components
             for (const componentId of this.createdComponents) {
                 try {
@@ -849,9 +947,49 @@ const multiVariateExtras = {
             this.createdComponents.clear();
             this.componentReferences.clear();
             
+            // Clean up correlation datasets
+            await this.cleanupCorrelationDatasets();
+            
             multiVariateExtras.log("MultiVariateExtras cleanup completed");
         } catch (error) {
             multiVariateExtras.error(`Error during cleanup: ${error.message}`);
+        }
+    },
+
+    /**
+     * Clean up correlation datasets created by this plugin
+     */
+    cleanupCorrelationDatasets: async function() {
+        try {
+            const datasetsToCheck = ['PairwiseCorrelations'];
+            
+            for (const datasetName of datasetsToCheck) {
+                try {
+                    const result = await codapInterface.sendRequest({
+                        action: "get",
+                        resource: `dataContext[${datasetName}]`
+                    });
+                    
+                    if (result.success) {
+                        // Check if this dataset was created by our plugin
+                        const datasetInfo = result.values;
+                        if (datasetInfo && datasetInfo.metadata && 
+                            datasetInfo.metadata.createdBy === 'multiVariateExtras') {
+                            
+                            // Delete the dataset
+                            await codapInterface.sendRequest({
+                                action: "delete",
+                                resource: `dataContext[${datasetName}]`
+                            });
+                            multiVariateExtras.log(`Deleted correlation dataset: ${datasetName}`);
+                        }
+                    }
+                } catch (error) {
+                    multiVariateExtras.warn(`Error checking/deleting dataset ${datasetName}: ${error.message}`);
+                }
+            }
+        } catch (error) {
+            multiVariateExtras.warn(`Error during dataset cleanup: ${error.message}`);
         }
     },
 
@@ -865,10 +1003,120 @@ const multiVariateExtras = {
             this.createdComponents.add(componentId);
             this.componentReferences.set(componentId, {
                 created: new Date(),
+                lastAccessed: new Date(),
                 type: componentData.type || 'unknown',
-                data: componentData
+                data: componentData,
+                status: 'active',
+                validationCount: 0,
+                autoCleanup: componentData.autoCleanup !== false // Default to true
             });
             multiVariateExtras.log(`Tracked component: ${componentId} (${componentData.type || 'unknown'})`);
+            
+            // Set up automatic cleanup for this component
+            this.setupComponentCleanup(componentId, componentData);
+        }
+    },
+
+    /**
+     * Set up automatic cleanup for a tracked component
+     */
+    setupComponentCleanup: function(componentId, componentData) {
+        // Set up periodic validation for this component
+        const validationInterval = setInterval(() => {
+            if (!this.createdComponents.has(componentId)) {
+                // Component was untracked, stop validation
+                clearInterval(validationInterval);
+                return;
+            }
+            
+            // Increment validation count
+            const ref = this.componentReferences.get(componentId);
+            if (ref) {
+                ref.validationCount++;
+                ref.lastAccessed = new Date();
+            }
+            
+            // Validate component every 10 checks (every 30 seconds)
+            if (ref && ref.validationCount % 10 === 0) {
+                this.validateSingleComponent(componentId);
+            }
+        }, 3000); // Check every 3 seconds
+        
+        // Store the interval ID for cleanup
+        if (!this.componentCleanupIntervals) {
+            this.componentCleanupIntervals = new Map();
+        }
+        this.componentCleanupIntervals.set(componentId, validationInterval);
+    },
+
+    /**
+     * Validate a single component and clean up if needed
+     */
+    validateSingleComponent: async function(componentId) {
+        try {
+            const result = await codapInterface.sendRequest({
+                action: "get",
+                resource: `component[${componentId}]`
+            });
+            
+            if (!result.success) {
+                multiVariateExtras.log(`Component ${componentId} no longer exists, cleaning up...`);
+                this.untrackComponent(componentId);
+                
+                // Trigger additional cleanup for this component type
+                const ref = this.componentReferences.get(componentId);
+                if (ref && ref.type === 'correlation_graph') {
+                    await this.cleanupCorrelationGraph(componentId);
+                }
+            }
+        } catch (error) {
+            multiVariateExtras.warn(`Error validating component ${componentId}: ${error.message}`);
+        }
+    },
+
+    /**
+     * Clean up correlation graph components specifically
+     */
+    cleanupCorrelationGraph: async function(componentId) {
+        try {
+            // Clean up any related datasets or components
+            const ref = this.componentReferences.get(componentId);
+            if (ref && ref.data && ref.data.dataset) {
+                // Check if the correlation dataset still exists
+                const datasetResult = await codapInterface.sendRequest({
+                    action: "get",
+                    resource: `dataContext[${ref.data.dataset}]`
+                });
+                
+                if (!datasetResult.success) {
+                    multiVariateExtras.log(`Correlation dataset ${ref.data.dataset} no longer exists, cleaning up references`);
+                    // Remove any references to this dataset
+                    this.cleanupDatasetReferences(ref.data.dataset);
+                }
+            }
+        } catch (error) {
+            multiVariateExtras.warn(`Error cleaning up correlation graph ${componentId}: ${error.message}`);
+        }
+    },
+
+    /**
+     * Clean up references to a specific dataset
+     */
+    cleanupDatasetReferences: function(datasetName) {
+        // Remove any components that reference this dataset
+        const componentsToRemove = [];
+        for (const [componentId, ref] of this.componentReferences) {
+            if (ref.data && ref.data.dataset === datasetName) {
+                componentsToRemove.push(componentId);
+            }
+        }
+        
+        componentsToRemove.forEach(componentId => {
+            this.untrackComponent(componentId);
+        });
+        
+        if (componentsToRemove.length > 0) {
+            multiVariateExtras.log(`Cleaned up ${componentsToRemove.length} components referencing dataset ${datasetName}`);
         }
     },
 
@@ -880,6 +1128,13 @@ const multiVariateExtras = {
         if (componentId && this.createdComponents.has(componentId)) {
             this.createdComponents.delete(componentId);
             this.componentReferences.delete(componentId);
+            
+            // Clear the cleanup interval
+            if (this.componentCleanupIntervals && this.componentCleanupIntervals.has(componentId)) {
+                clearInterval(this.componentCleanupIntervals.get(componentId));
+                this.componentCleanupIntervals.delete(componentId);
+            }
+            
             multiVariateExtras.log(`Untracked component: ${componentId}`);
         }
     },
