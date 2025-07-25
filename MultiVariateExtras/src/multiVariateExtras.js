@@ -198,6 +198,9 @@ const multiVariateExtras = {
         // Set up periodic error checking
         this.setupPeriodicErrorChecking();
         
+        // Set up aggressive error detection
+        this.setupAggressiveErrorDetection();
+        
         console.log("MultiVariateExtras: Global error handling set up for MobX errors");
     },
 
@@ -232,6 +235,95 @@ const multiVariateExtras = {
             // This is a fallback mechanism
             // We can't directly check for errors, but we can monitor the state
         }, 2000);
+    },
+
+    /**
+     * Set up more aggressive error detection for MobX errors
+     */
+    setupAggressiveErrorDetection: function() {
+        // Override console methods more aggressively
+        const originalConsoleError = console.error;
+        const originalConsoleWarn = console.warn;
+        const originalConsoleLog = console.log;
+        
+        // Create a more comprehensive error interceptor
+        const interceptMobXError = (message, errorType = 'unknown') => {
+            if (typeof message === 'string' && 
+                (message.includes('[mobx] uncaught error in') || 
+                 message.includes('Failed to resolve reference') ||
+                 message.includes('FormulaManager.registerActiveFormulas.reaction') ||
+                 message.includes('mobx-state-tree'))) {
+                
+                console.warn(`MultiVariateExtras: Intercepted MobX error via ${errorType}:`, message);
+                this.handleCODAPMobXError(message, new Error(message));
+                return true;
+            }
+            return false;
+        };
+
+        // Override console.error
+        console.error = (...args) => {
+            const errorMessage = args.join(' ');
+            if (!interceptMobXError(errorMessage, 'console.error')) {
+                originalConsoleError.apply(console, args);
+            }
+        };
+
+        // Override console.warn
+        console.warn = (...args) => {
+            const warnMessage = args.join(' ');
+            if (!interceptMobXError(warnMessage, 'console.warn')) {
+                originalConsoleWarn.apply(console, args);
+            }
+        };
+
+        // Override console.log
+        console.log = (...args) => {
+            const logMessage = args.join(' ');
+            if (!interceptMobXError(logMessage, 'console.log')) {
+                originalConsoleLog.apply(console, args);
+            }
+        };
+
+        // Set up a more aggressive error listener
+        window.addEventListener('error', (event) => {
+            const message = event.message || event.error?.message || String(event.error);
+            if (interceptMobXError(message, 'window.error')) {
+                event.preventDefault();
+                return true;
+            }
+        });
+
+        // Set up unhandled promise rejection listener
+        window.addEventListener('unhandledrejection', (event) => {
+            const message = event.reason?.message || String(event.reason);
+            if (interceptMobXError(message, 'unhandledrejection')) {
+                event.preventDefault();
+                return true;
+            }
+        });
+
+        console.log("MultiVariateExtras: Aggressive error detection set up");
+        
+        // Set up a specific override for the case-tile-utils error pattern
+        const originalError = Error;
+        Error = function(message, ...args) {
+            const error = new originalError(message, ...args);
+            
+            // Check if this is the specific MobX error we're looking for
+            if (message && typeof message === 'string' && 
+                message.includes('[mobx-state-tree] Failed to resolve reference') &&
+                message.includes('TileModel')) {
+                
+                console.warn("MultiVariateExtras: Intercepted MobX state tree error via Error constructor:", message);
+                setTimeout(() => {
+                    this.handleCODAPMobXError(message, error);
+                }, 0);
+            }
+            
+            return error;
+        };
+        Error.prototype = originalError.prototype;
     },
 
     /**
