@@ -261,9 +261,27 @@ const multiVariateExtras = {
             return false;
         };
 
+        // Create a recent errors store
+        if (!window.multiVariateExtrasRecentErrors) {
+            window.multiVariateExtrasRecentErrors = [];
+        }
+
         // Override console.error
         console.error = (...args) => {
             const errorMessage = args.join(' ');
+            
+            // Store all console.error messages for polling
+            window.multiVariateExtrasRecentErrors.push({
+                message: errorMessage,
+                timestamp: Date.now(),
+                args: args
+            });
+            
+            // Keep only last 50 errors
+            if (window.multiVariateExtrasRecentErrors.length > 50) {
+                window.multiVariateExtrasRecentErrors = window.multiVariateExtrasRecentErrors.slice(-50);
+            }
+            
             if (!interceptMobXError(errorMessage, 'console.error')) {
                 originalConsoleError.apply(console, args);
             }
@@ -306,6 +324,7 @@ const multiVariateExtras = {
         console.log("MultiVariateExtras: Aggressive error detection set up");
         
         // Set up a specific override for the case-tile-utils error pattern
+        const self = this;
         const originalError = Error;
         Error = function(message, ...args) {
             const error = new originalError(message, ...args);
@@ -317,13 +336,65 @@ const multiVariateExtras = {
                 
                 console.warn("MultiVariateExtras: Intercepted MobX state tree error via Error constructor:", message);
                 setTimeout(() => {
-                    this.handleCODAPMobXError(message, error);
+                    self.handleCODAPMobXError(message, error);
                 }, 0);
             }
             
             return error;
         };
         Error.prototype = originalError.prototype;
+        
+        // Try to hook into MobX's error reporting system directly
+        if (typeof window !== 'undefined' && window.mobx) {
+            try {
+                const originalOnError = window.mobx.configure.onError;
+                window.mobx.configure({
+                    onError: (error) => {
+                        console.warn("MultiVariateExtras: Intercepted MobX error via mobx.onError:", error);
+                        self.handleCODAPMobXError(error.message || String(error), error);
+                        if (originalOnError) originalOnError(error);
+                    }
+                });
+                console.log("MultiVariateExtras: Hooked into MobX error system");
+            } catch (e) {
+                console.warn("MultiVariateExtras: Could not hook into MobX error system:", e.message);
+            }
+        }
+        
+                 // Add a polling mechanism to detect console.error calls we missed
+         let lastCheckedErrorIndex = 0;
+         setInterval(() => {
+             try {
+                 const recentErrors = window.multiVariateExtrasRecentErrors || [];
+                 
+                 // Check only new errors since last check
+                 for (let i = lastCheckedErrorIndex; i < recentErrors.length; i++) {
+                     const errorEntry = recentErrors[i];
+                     const errorMessage = errorEntry.message;
+                     
+                     if (errorMessage && 
+                         (errorMessage.includes('[mobx-state-tree] Failed to resolve reference') ||
+                          errorMessage.includes('case-tile-utils.ts') ||
+                          errorMessage.includes('FormulaManager.registerActiveFormulas.reaction'))) {
+                         console.warn("MultiVariateExtras: Found MobX error via polling:", errorMessage);
+                         self.handleCODAPMobXError(errorMessage, new Error(errorMessage));
+                         break; // Handle one error at a time
+                     }
+                 }
+                 
+                 lastCheckedErrorIndex = recentErrors.length;
+                 
+                 // Clean up old errors (older than 30 seconds)
+                 const cutoffTime = Date.now() - 30000;
+                 window.multiVariateExtrasRecentErrors = recentErrors.filter(
+                     error => error.timestamp > cutoffTime
+                 );
+                 
+             } catch (e) {
+                 // Ignore polling errors
+                 console.warn("MultiVariateExtras: Error in polling mechanism:", e.message);
+             }
+         }, 1000);
     },
 
     /**
