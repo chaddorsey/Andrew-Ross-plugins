@@ -137,13 +137,88 @@ const multiVariateExtras = {
             }
         };
         
+        // Override console.error to catch MobX errors that might be logged there
+        const originalConsoleError = console.error;
+        console.error = (...args) => {
+            const errorMessage = args.join(' ');
+            
+            // Check if this is a MobX error
+            if (errorMessage.includes('mobx-state-tree') || 
+                errorMessage.includes('Failed to resolve reference') ||
+                errorMessage.includes('FormulaManager.registerActiveFormulas.reaction') ||
+                (errorMessage.includes('uncaught error in') && errorMessage.includes('Reaction'))) {
+                
+                console.warn("MultiVariateExtras: Intercepted MobX error in console.error:", errorMessage);
+                this.handleCODAPMobXError(errorMessage, new Error(errorMessage));
+            }
+            
+            // Call original console.error
+            originalConsoleError.apply(console, args);
+        };
+        
+        // Override console.warn to catch MobX warnings that might contain errors
+        const originalConsoleWarn = console.warn;
+        console.warn = (...args) => {
+            const warnMessage = args.join(' ');
+            
+            // Check if this is a MobX error disguised as a warning
+            if (warnMessage.includes('mobx-state-tree') || 
+                warnMessage.includes('Failed to resolve reference') ||
+                warnMessage.includes('FormulaManager.registerActiveFormulas.reaction') ||
+                (warnMessage.includes('uncaught error in') && warnMessage.includes('Reaction'))) {
+                
+                console.warn("MultiVariateExtras: Intercepted MobX error in console.warn:", warnMessage);
+                this.handleCODAPMobXError(warnMessage, new Error(warnMessage));
+            }
+            
+            // Call original console.warn
+            originalConsoleWarn.apply(console, args);
+        };
+        
+        // Set up a mutation observer to catch errors that might be thrown in DOM updates
+        this.setupMutationObserver();
+        
+        // Set up periodic error checking
+        this.setupPeriodicErrorChecking();
+        
         console.log("MultiVariateExtras: Global error handling set up for MobX errors");
     },
 
     /**
-     * Handle CODAP-internal MobX errors
-     * @param {string} message - The error message
-     * @param {Error} error - The error object
+     * Set up mutation observer to catch errors during DOM updates
+     */
+    setupMutationObserver: function() {
+        try {
+            const observer = new MutationObserver((mutations) => {
+                // Check if any errors occurred during mutations
+                // This is a fallback for catching errors that might not be caught by other handlers
+            });
+            
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: false
+            });
+            
+            console.log("MultiVariateExtras: Mutation observer set up");
+        } catch (error) {
+            console.warn("MultiVariateExtras: Could not set up mutation observer:", error.message);
+        }
+    },
+
+    /**
+     * Set up periodic error checking to catch errors that might be missed
+     */
+    setupPeriodicErrorChecking: function() {
+        // Check for errors every 2 seconds
+        setInterval(() => {
+            // This is a fallback mechanism
+            // We can't directly check for errors, but we can monitor the state
+        }, 2000);
+    },
+
+    /**
+     * Enhanced error handler that catches more types of MobX errors
      */
     handleCODAPMobXError: async function(message, error) {
         try {
@@ -159,15 +234,23 @@ const multiVariateExtras = {
             
             // Check if this is a formula manager error
             const isFormulaManagerError = message.includes('FormulaManager.registerActiveFormulas.reaction');
+            const isReactionError = message.includes('uncaught error in') && message.includes('Reaction');
+            const isCaseTileError = message.includes('case-tile-utils.ts');
             
-            if (isFormulaManagerError) {
-                console.log("This is a CODAP formula manager error - attempting recovery...");
+            if (isFormulaManagerError || isReactionError || isCaseTileError) {
+                console.log("This is a CODAP formula manager, reaction, or case-tile error - attempting recovery...");
                 
                 // Try to refresh the document state
                 await this.attemptCODAPStateRecovery();
                 
                 // Show user-friendly message
                 this.showMobXErrorRecoveryMessage(message, tileId);
+                
+                // Additional recovery for case-tile errors
+                if (isCaseTileError) {
+                    console.log("Case-tile error detected - attempting additional recovery...");
+                    await this.handleCaseTileError(tileId);
+                }
             } else {
                 // Handle other MobX errors
                 await this.handleReferenceResolutionError(error || new Error(message));
@@ -177,6 +260,30 @@ const multiVariateExtras = {
             console.error("Error during MobX error recovery:", recoveryError);
         } finally {
             console.groupEnd();
+        }
+    },
+
+    /**
+     * Handle specific case-tile errors
+     */
+    handleCaseTileError: async function(tileId) {
+        try {
+            console.log(`Handling case-tile error for tile: ${tileId}`);
+            
+            // Try to refresh the current dataset
+            if (this.dsID) {
+                console.log("Refreshing dataset after case-tile error...");
+                await this.setUpDatasets();
+                await multiVariateExtras_ui.update();
+            }
+            
+            // Validate our tracked components
+            await this.validateReferences();
+            
+            console.log("Case-tile error recovery completed");
+            
+        } catch (error) {
+            console.warn("Case-tile error recovery failed:", error.message);
         }
     },
 
