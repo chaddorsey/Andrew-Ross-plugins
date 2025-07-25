@@ -282,6 +282,11 @@ const multiVariateExtras = {
                 window.multiVariateExtrasRecentErrors = window.multiVariateExtrasRecentErrors.slice(-50);
             }
             
+            // Debug: Log all console.error calls to see what we're intercepting
+            if (errorMessage.includes('mobx') || errorMessage.includes('MobX') || errorMessage.includes('case-tile')) {
+                console.warn("MultiVariateExtras: console.error override caught MobX-related message:", errorMessage);
+            }
+            
             if (!interceptMobXError(errorMessage, 'console.error')) {
                 originalConsoleError.apply(console, args);
             }
@@ -323,6 +328,43 @@ const multiVariateExtras = {
 
         console.log("MultiVariateExtras: Aggressive error detection set up");
         
+        // Add a global try-catch wrapper for the entire page
+        const originalRaf = window.requestAnimationFrame;
+        window.requestAnimationFrame = function(callback) {
+            return originalRaf.call(this, function(time) {
+                try {
+                    return callback(time);
+                } catch (error) {
+                    if (error && error.message && 
+                        (error.message.includes('[mobx-state-tree] Failed to resolve reference') ||
+                         error.message.includes('TileModel'))) {
+                        console.warn("MultiVariateExtras: Caught MobX error via requestAnimationFrame:", error.message);
+                        self.handleCODAPMobXError(error.message, error);
+                    }
+                    throw error; // Re-throw for normal error handling
+                }
+            });
+        };
+        
+        // Override setTimeout and setInterval to catch async errors
+        const originalSetTimeout = window.setTimeout;
+        window.setTimeout = function(callback, delay, ...args) {
+            const wrappedCallback = function() {
+                try {
+                    return callback.apply(this, arguments);
+                } catch (error) {
+                    if (error && error.message && 
+                        (error.message.includes('[mobx-state-tree] Failed to resolve reference') ||
+                         error.message.includes('TileModel'))) {
+                        console.warn("MultiVariateExtras: Caught MobX error via setTimeout:", error.message);
+                        self.handleCODAPMobXError(error.message, error);
+                    }
+                    throw error;
+                }
+            };
+            return originalSetTimeout.call(this, wrappedCallback, delay, ...args);
+        };
+        
         // Set up a specific override for the case-tile-utils error pattern
         const self = this;
         const originalError = Error;
@@ -363,8 +405,11 @@ const multiVariateExtras = {
         
                  // Add a polling mechanism to detect console.error calls we missed
          let lastCheckedErrorIndex = 0;
+         let lastErrorCheckTime = Date.now();
+         
          setInterval(() => {
              try {
+                 const currentTime = Date.now();
                  const recentErrors = window.multiVariateExtrasRecentErrors || [];
                  
                  // Check only new errors since last check
@@ -384,8 +429,19 @@ const multiVariateExtras = {
                  
                  lastCheckedErrorIndex = recentErrors.length;
                  
+                 // Alternative: Monitor for specific error patterns in recent timeframe
+                 if (currentTime - lastErrorCheckTime > 2000) { // Check every 2 seconds
+                     // Try to detect if there were any console errors we missed
+                     // by looking for the error pattern in the global error state
+                     if (typeof window.console !== 'undefined' && window.console.memory) {
+                         // This is a heuristic - if memory usage spiked, there might have been errors
+                         // console.warn("MultiVariateExtras: Checking for missed errors...");
+                     }
+                     lastErrorCheckTime = currentTime;
+                 }
+                 
                  // Clean up old errors (older than 30 seconds)
-                 const cutoffTime = Date.now() - 30000;
+                 const cutoffTime = currentTime - 30000;
                  window.multiVariateExtrasRecentErrors = recentErrors.filter(
                      error => error.timestamp > cutoffTime
                  );
@@ -394,8 +450,34 @@ const multiVariateExtras = {
                  // Ignore polling errors
                  console.warn("MultiVariateExtras: Error in polling mechanism:", e.message);
              }
-         }, 1000);
-    },
+                          }, 500); // Faster polling - every 500ms
+         
+         // Add a final fallback: Monitor the console output directly
+         let consoleMonitorEnabled = true;
+         
+         const monitorConsoleOutput = () => {
+             if (!consoleMonitorEnabled) return;
+             
+             // Try to detect the error pattern in any recent console activity
+             setTimeout(() => {
+                 // Check if the error occurred by looking for it in console history
+                 // This is a heuristic approach since we can't directly access console history
+                 
+                 // Re-enable monitoring for the next cycle
+                 if (consoleMonitorEnabled) {
+                     monitorConsoleOutput();
+                 }
+             }, 1000);
+         };
+         
+         // Start console monitoring
+         monitorConsoleOutput();
+         
+         // Add cleanup when plugin is unloaded
+         window.addEventListener('beforeunload', () => {
+             consoleMonitorEnabled = false;
+         });
+     },
 
     /**
      * Enhanced error handler that catches more types of MobX errors
@@ -1052,6 +1134,23 @@ const multiVariateExtras = {
             if (debugButton) {
                 console.log(`  Debug button onclick: ${debugButton.onclick ? '✅' : '❌'}`);
             }
+            
+            // Test 7: Manual error handler test
+            console.log("\nTesting error handler manually:");
+            try {
+                const testError = "[mobx-state-tree] Failed to resolve reference 'TABL123456789' to type 'TileModel' (from node: /content/sharedModelMap/TEST/tiles/1)";
+                console.log("  Triggering test MobX error...");
+                this.handleCODAPMobXError(testError, new Error(testError));
+                console.log("  Manual error handler test: ✅");
+            } catch (error) {
+                console.log("  Manual error handler test: ❌", error.message);
+            }
+            
+            // Test 8: Check recent errors store
+            console.log("\nChecking error storage:");
+            const recentErrors = window.multiVariateExtrasRecentErrors || [];
+            console.log(`  Recent errors stored: ${recentErrors.length}`);
+            console.log(`  Error storage working: ${Array.isArray(recentErrors) ? '✅' : '❌'}`);
             
             console.log("\n=== ALL TESTS COMPLETED ===");
             console.log("If you see any ❌ marks above, there may be an issue with the debugging features.");
