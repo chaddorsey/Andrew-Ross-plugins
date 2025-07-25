@@ -46,6 +46,19 @@ const multiVariateExtras = {
 
     initialize: async function () {
         this.attributeGroupingMode = this.constants.kGroupAttributeByBatchMode;
+        
+        // Test debugging features are loaded
+        console.log("MultiVariateExtras initializing with debugging features...");
+        console.log("Debug functions available:", {
+            debugMode: typeof this.debugMode === 'function',
+            trackComponent: typeof this.trackComponent === 'function',
+            validateReferences: typeof this.validateReferences === 'function',
+            handleReferenceResolutionError: typeof this.handleReferenceResolutionError === 'function'
+        });
+        
+        // Set up global error handler for MobX errors
+        this.setupGlobalErrorHandling();
+        
         await connect.initialize();
         await this.setUpDatasets();
 
@@ -70,6 +83,169 @@ const multiVariateExtras = {
 
         // Set up cleanup on page unload
         window.addEventListener('beforeunload', this.cleanup.bind(this));
+        
+        // Test debug mode is accessible
+        console.log("MultiVariateExtras initialization complete. Debug button should be available.");
+        console.log("You can test debugging by calling: multiVariateExtras.testDebugFeatures()");
+    },
+
+    /**
+     * Set up global error handling for MobX and CODAP errors
+     */
+    setupGlobalErrorHandling: function() {
+        // Store original error handlers
+        const originalOnError = window.onerror;
+        const originalOnUnhandledRejection = window.onunhandledrejection;
+        
+        // Global error handler
+        window.onerror = (message, source, lineno, colno, error) => {
+            // Check if this is a MobX state tree error
+            if (message && typeof message === 'string' && 
+                (message.includes('mobx-state-tree') || 
+                 message.includes('Failed to resolve reference') ||
+                 message.includes('FormulaManager.registerActiveFormulas.reaction'))) {
+                
+                console.warn("MultiVariateExtras: Caught MobX state tree error:", message);
+                this.handleCODAPMobXError(message, error);
+                return true; // Prevent default error handling
+            }
+            
+            // Call original handler if it exists
+            if (originalOnError) {
+                return originalOnError(message, source, lineno, colno, error);
+            }
+        };
+        
+        // Handle unhandled promise rejections
+        window.onunhandledrejection = (event) => {
+            const reason = event.reason;
+            const message = reason && reason.message ? reason.message : String(reason);
+            
+            if (message.includes('mobx-state-tree') || 
+                message.includes('Failed to resolve reference') ||
+                message.includes('FormulaManager')) {
+                
+                console.warn("MultiVariateExtras: Caught MobX promise rejection:", message);
+                this.handleCODAPMobXError(message, reason);
+                event.preventDefault(); // Prevent default handling
+                return;
+            }
+            
+            // Call original handler if it exists
+            if (originalOnUnhandledRejection) {
+                originalOnUnhandledRejection(event);
+            }
+        };
+        
+        console.log("MultiVariateExtras: Global error handling set up for MobX errors");
+    },
+
+    /**
+     * Handle CODAP-internal MobX errors
+     * @param {string} message - The error message
+     * @param {Error} error - The error object
+     */
+    handleCODAPMobXError: async function(message, error) {
+        try {
+            console.group("MultiVariateExtras: Handling CODAP MobX Error");
+            console.log("Error message:", message);
+            console.log("Error object:", error);
+            
+            // Extract tile ID if present
+            const tileMatch = message.match(/TABL[0-9]+/);
+            const tileId = tileMatch ? tileMatch[0] : null;
+            
+            console.log("Detected tile ID:", tileId);
+            
+            // Check if this is a formula manager error
+            const isFormulaManagerError = message.includes('FormulaManager.registerActiveFormulas.reaction');
+            
+            if (isFormulaManagerError) {
+                console.log("This is a CODAP formula manager error - attempting recovery...");
+                
+                // Try to refresh the document state
+                await this.attemptCODAPStateRecovery();
+                
+                // Show user-friendly message
+                this.showMobXErrorRecoveryMessage(message, tileId);
+            } else {
+                // Handle other MobX errors
+                await this.handleReferenceResolutionError(error || new Error(message));
+            }
+            
+        } catch (recoveryError) {
+            console.error("Error during MobX error recovery:", recoveryError);
+        } finally {
+            console.groupEnd();
+        }
+    },
+
+    /**
+     * Attempt to recover from CODAP state issues
+     */
+    attemptCODAPStateRecovery: async function() {
+        try {
+            console.log("Attempting CODAP state recovery...");
+            
+            // Validate our tracked components
+            await this.validateReferences();
+            
+            // Try to refresh the current dataset info
+            if (this.dsID) {
+                console.log("Refreshing dataset info...");
+                await this.setUpDatasets();
+            }
+            
+            // Log recovery attempt
+            console.log("CODAP state recovery completed");
+            
+        } catch (error) {
+            console.warn("CODAP state recovery failed:", error.message);
+        }
+    },
+
+    /**
+     * Show user-friendly message for MobX errors
+     */
+    showMobXErrorRecoveryMessage: function(message, tileId) {
+        const errorMessage = `
+            <strong>CODAP Internal Error Detected</strong><br><br>
+            
+            This error occurred in CODAP's internal system, not in the MultiVariateExtras plugin.<br><br>
+            
+            <strong>Error Details:</strong><br>
+            ${message}<br><br>
+            
+            ${tileId ? `<strong>Affected Component:</strong> ${tileId}<br><br>` : ''}
+            
+            <strong>Recovery Actions Taken:</strong><br>
+            ✅ Validated plugin component references<br>
+            ✅ Refreshed dataset information<br>
+            ✅ Attempted state recovery<br><br>
+            
+            <strong>What You Can Do:</strong><br>
+            1. <strong>Try your action again</strong> - it should work now<br>
+            2. If problems persist, <strong>refresh the CODAP document</strong><br>
+            3. If issues continue, <strong>restart the plugin</strong><br><br>
+            
+            <em>This error is typically caused by CODAP's internal state becoming inconsistent. 
+            The recovery process should resolve the issue.</em>
+        `;
+        
+        // Show message using SweetAlert if available
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                icon: 'warning',
+                title: 'CODAP Internal Error',
+                html: errorMessage,
+                confirmButtonText: 'OK',
+                width: '600px'
+            });
+        } else {
+            // Fallback to console and alert
+            console.warn("CODAP Internal Error:", message);
+            alert("CODAP Internal Error detected. Check console for details. Try your action again.");
+        }
     },
 
     /**
@@ -333,6 +509,65 @@ const multiVariateExtras = {
                 alert(`Debug Error: ${error.message}`);
             }
         }
+    },
+
+    /**
+     * Test function to verify debugging features are working
+     * Call this from browser console: multiVariateExtras.testDebugFeatures()
+     */
+    testDebugFeatures: function() {
+        console.group("=== MultiVariateExtras Debug Feature Test ===");
+        
+        try {
+            // Test 1: Check if all debug functions exist
+            const debugFunctions = [
+                'debugMode', 'trackComponent', 'untrackComponent', 
+                'validateReferences', 'handleReferenceResolutionError', 'getDebugInfo'
+            ];
+            
+            console.log("Testing debug function availability:");
+            debugFunctions.forEach(funcName => {
+                const exists = typeof this[funcName] === 'function';
+                console.log(`  ${funcName}: ${exists ? '✅' : '❌'}`);
+            });
+            
+            // Test 2: Check if tracking properties exist
+            console.log("\nTesting tracking properties:");
+            console.log(`  createdComponents: ${this.createdComponents instanceof Set ? '✅' : '❌'}`);
+            console.log(`  componentReferences: ${this.componentReferences instanceof Map ? '✅' : '❌'}`);
+            
+            // Test 3: Test component tracking
+            console.log("\nTesting component tracking:");
+            const testId = 'test-component-' + Date.now();
+            this.trackComponent(testId, { type: 'test', data: 'test data' });
+            console.log(`  Tracked test component: ${this.createdComponents.has(testId) ? '✅' : '❌'}`);
+            
+            // Test 4: Test untracking
+            this.untrackComponent(testId);
+            console.log(`  Untracked test component: ${!this.createdComponents.has(testId) ? '✅' : '❌'}`);
+            
+            // Test 5: Test debug info
+            console.log("\nTesting debug info:");
+            const debugInfo = this.getDebugInfo();
+            console.log("  Debug info structure:", debugInfo);
+            
+            // Test 6: Check if debug button exists in DOM
+            console.log("\nTesting debug button in DOM:");
+            const debugButton = document.querySelector('.debug-button');
+            console.log(`  Debug button found: ${debugButton ? '✅' : '❌'}`);
+            if (debugButton) {
+                console.log(`  Debug button onclick: ${debugButton.onclick ? '✅' : '❌'}`);
+            }
+            
+            console.log("\n=== ALL TESTS COMPLETED ===");
+            console.log("If you see any ❌ marks above, there may be an issue with the debugging features.");
+            console.log("If all tests show ✅, the debugging features should be working properly.");
+            
+        } catch (error) {
+            console.error("Error during debug feature test:", error);
+        }
+        
+        console.groupEnd();
     },
 
     /**

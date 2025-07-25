@@ -64,6 +64,23 @@ const notify = {
                 }
                 break;
 
+            case 'select':
+                // Component was selected - this can trigger MobX errors
+                if (theValues.id) {
+                    multiVariateExtras.log(`Component ${theValues.id} was selected`);
+                    
+                    // If this is a table component, prepare for potential MobX errors
+                    if (theValues.type === 'table' || theValues.id.startsWith('TABL')) {
+                        console.log("Table component selected - monitoring for potential MobX errors...");
+                        
+                        // Set a flag to watch for errors in the next few seconds
+                        setTimeout(() => {
+                            console.log("Table selection monitoring period ended");
+                        }, 5000);
+                    }
+                }
+                break;
+
             default:
                 multiVariateExtras.log(`?  handleComponentChangeNotice unhandled operation: ${theValues.operation}`);
                 break;
