@@ -5,14 +5,14 @@
  * This is a systematic rebuild approach to identify which operations
  * trigger MobX state tree reference resolution errors.
  * 
- * Version: 2025a-minimal
+ * Version: 2025b-minimal
  * Author: Systematic Rebuild Team
  */
 
 /* global codapInterface */
 
 const minimalMultiVariateExtras = {
-    version: '2025a-minimal',
+            version: '2025b-minimal',
     
     // No component tracking - avoiding shared model references
     // No cleanup needed - no components to clean up

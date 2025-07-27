@@ -2126,7 +2126,7 @@ const multiVariateExtras = {
     },
 
     constants: {
-        version: '2025a',
+        version: '2025b',
         datasetSummaryEL: 'summaryInfo',
         selectionStatusElementID: 'selection-status',
         tagValueElementID: "tag-value-input",
